@@ -1,6 +1,7 @@
 
 dmt_resources <- function() {
-  shiny::addResourcePath("audio", system.file('extdata/audio', package = "DMT"))
+
+  shiny::addResourcePath("audio", system.file('audio', package = "DMT"))
 
   shiny::addResourcePath("css", system.file("css", package = "DMT"))
 
