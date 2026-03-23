@@ -1,0 +1,108 @@
+
+body {
+  font-family: system-ui;
+  margin: 40px;
+}
+
+ul, ol {
+  display: inline-block;   /* shrink to content width */
+  text-align: left;        /* keep list readable */
+  margin: 1em auto;        /* center horizontally */
+  padding-left: 0;
+}
+
+/* custom bullets */
+ul li {
+  display: flex;
+  gap: 0.4em;
+}
+
+ul li::before {
+  content: "•";
+  flex-shrink: 0;
+}
+
+ol {
+  counter-reset: item;
+}
+
+ol li {
+  display: flex;
+  gap: 0.4em;
+  counter-increment: item;
+}
+
+ol li::before {
+  content: counter(item) ".";
+  flex-shrink: 0;
+}
+
+#play {
+  display: block;
+  text-align: center;
+  margin: auto;
+}
+
+/* main sequencer layout */
+
+.sequencer {
+  display:grid;
+  grid-template-columns:120px auto;
+  row-gap:10px;
+  margin-bottom: 20px;
+}
+
+/* instrument labels */
+
+.inst {
+  font-weight:600;
+  text-align:right;
+  padding-right:10px;
+  align-self:center;
+}
+
+/* step grid */
+
+.grid {
+  position:relative;
+  display:grid;
+  grid-template-columns:repeat(16,32px);
+  gap:5px;
+}
+
+
+/* cells */
+
+.cell {
+  width:30px;
+  height:30px;
+  border-radius:6px;
+  background:#e4e4e4;
+  cursor:pointer;
+  transition:0.1s;
+}
+
+.cell.active {
+  background:#ff6b6b;
+}
+
+
+.cell.playhead {
+  outline:3px solid #222;
+}
+
+/* bar numbers */
+
+.barnumbers {
+  display:grid;
+  grid-template-columns:120px repeat(16,32px);
+  column-gap:5px;
+  margin-bottom:10px;
+  font-weight:600;
+  color:#666;
+}
+
+.barlabel {
+  text-align:center;
+  transform:translateX(-2px);
+}
