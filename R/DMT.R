@@ -1,6 +1,16 @@
 
 
 
+#' Standalone Drum Machine Test
+#'
+#' @param tempo
+#' @param num_trials
+#' @param num_example_trials
+#'
+#' @returns
+#' @export
+#'
+#' @examples
 DMT_standalone <- function(tempo = 100,
                            num_trials = 5L,
                            num_example_trials = 3) {
@@ -18,6 +28,16 @@ DMT_standalone <- function(tempo = 100,
     )
 }
 
+#' Embed Drum Machine Test in battery
+#'
+#' @param num_trials
+#' @param tempo
+#' @param num_example_trials
+#'
+#' @returns
+#' @export
+#'
+#' @examples
 DMT <- function(num_trials = 5L, tempo = 100, num_example_trials = 3) {
 
   easy_stimuli_drum_matrix <- easy_stimuli_drum_matrix %>%
