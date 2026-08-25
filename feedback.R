@@ -32,14 +32,11 @@ DMT_feedback <- function(trial_no, num_trials, tempo, stimulus_drum_matrix, demo
       num_trials,
       feedback = feedback,
       tempo = tempo,
-      attempt = attempt,
       show_solution = show_solution,
       show_input_grid = attempt == 4L,
       demo = demo,
       show_play_buttons = FALSE,
-      stimulus_drum_matrix = stimulus_drum_matrix,
-      stratified_sampling = stratified_sampling,
-      collect_answer = FALSE
+      stimulus_drum_matrix = stimulus_drum_matrix
     )
   })
 }

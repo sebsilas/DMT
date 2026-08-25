@@ -1,6 +1,3 @@
-
-
-
 #' Standalone Drum Machine Test
 #'
 #' @param tempo
@@ -9,6 +6,14 @@
 #' @param with_feedback
 #' @param custom_stratified_sampling_allocation
 #' @param trial_timeout
+#' @param language Scalar character, one of DMT_languages() (currently
+#' "en", "de", "de_f"). Fixes the standalone test to exactly this language.
+#' @param admin_password Password required to access the psychTestR admin
+#' panel (reachable by appending \code{?admin=1} to the test URL). Must be
+#' set explicitly — there is no insecure default anymore. Choose a strong,
+#' non-guessable password before deploying to a public server.
+#' @param researcher_email Contact email shown to participants and used in
+#' the admin panel.
 #'
 #' @returns
 #' @export
@@ -20,26 +25,39 @@ DMT_standalone <- function(tempo = 100,
                            with_feedback = TRUE,
                            stratified_sampling = TRUE,
                            custom_stratified_sampling_allocation = NULL,
-                           trial_timeout = 90) {
+                           trial_timeout = 90,
+                           language = "en",
+                           admin_password,
+                           researcher_email = "sebastian.silas@uni_hamburg.de") {
+
+  if (missing(admin_password) || !is.scalar.character(admin_password) || nchar(admin_password) < 8) {
+    stop(
+      "admin_password must be supplied as a character string with at least ",
+      "8 characters. Example: DMT_standalone(admin_password = 'a_strong_password_here')"
+    )
+  }
+
   DMT(tempo = tempo,
       num_trials = num_trials,
       num_examples = num_examples,
       with_feedback = with_feedback,
       stratified_sampling = stratified_sampling,
       custom_stratified_sampling_allocation = custom_stratified_sampling_allocation,
-      trial_timeout = trial_timeout
-      ) %>%
+      trial_timeout = trial_timeout,
+      language = language
+  ) %>%
     psychTestR::make_test(
       opt = psychTestR::test_options(
         title = "Drum Machine Test",
-        admin_password = "test",
-        researcher_email = "sebastian.silas@uni_hamburg.de",
+        admin_password = admin_password,
+        enable_admin_panel = TRUE,
+        researcher_email = researcher_email,
+        languages = language,
         display = psychTestR::display_options(full_screen = TRUE),
         additional_scripts = "https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"
       )
     )
 }
-
 #' Embed Drum Machine Test in battery
 #'
 #' @param num_trials
@@ -48,6 +66,9 @@ DMT_standalone <- function(tempo = 100,
 #' @param with_feedback
 #' @param custom_stratified_sampling_allocation
 #' @param trial_timeout Trial timeout in seconds.
+#' @param language Scalar character, one of DMT_languages() (currently
+#' "en", "de", "de_f"). Fixes the test to exactly this language — no other
+#' language is reachable in the resulting timeline, not even via URL param.
 #'
 #' @returns
 #' @export
@@ -59,7 +80,8 @@ DMT <- function(num_trials = 5L,
                 with_feedback = TRUE,
                 stratified_sampling = TRUE,
                 custom_stratified_sampling_allocation = NULL,
-                trial_timeout = 90) {
+                trial_timeout = 90,
+                language = "en") {
 
 
   if(!is.null(custom_stratified_sampling_allocation) && sum(unlist(custom_stratified_sampling_allocation)) != num_trials) {
@@ -68,37 +90,109 @@ DMT <- function(num_trials = 5L,
 
   # If static test:
   easy_stimuli_drum_matrix <- easy_stimuli_drum_matrix %>%
-    dplyr::mutate(Source = "easy")
+    dplyr::mutate(
+      Source = "easy",
+      Audiofile = as.character(Audiofile),
+      Seconds = as.numeric(Seconds)
+    )
 
   drum_matrix <- drum_matrix %>%
-    dplyr::mutate(Source = "normal")
+    dplyr::mutate(
+      Source = "normal",
+      Audiofile = as.character(Audiofile),
+      Seconds = as.numeric(Seconds)
+    )
 
   full_drum_matrix <- dplyr::bind_rows(easy_stimuli_drum_matrix, drum_matrix) %>%
     dplyr::mutate(TrialNo = dplyr::row_number())
 
+  # ------------------------------------------------------------------
+  # BUGFIX Punkt 3a-Folgefehler: DMT_main_trials() baute bisher IMMER
+  # 1:num_trials Seiten (die urspruenglich ANGEFORDERTE Anzahl), egal wie
+  # viele Trials sample_trials() zur Laufzeit tatsaechlich sampelt, wenn
+  # ein Stratum zu wenige verfuegbare Stimuli hat (siehe Warnung dort).
+  # Fuer TrialNo-Werte oberhalb der tatsaechlich gesampelten Trials fand
+  # DMT_page_loop()/dmt_get_answer() dann keine Zeilen mehr -> leerer
+  # Stimulus/leeres Grid, UI-Zaehler zeigte z.B. "1/200" statt "1/84".
+  #
+  # Fix: main_trial_count bestimmt jetzt vorab (zur BUILD-TIME), wie viele
+  # Trials tatsaechlich zustande kommen werden, und wird sowohl fuer die
+  # Trial-Loop (DMT_main_trials()) als auch fuer die Anzeige (num_trials
+  # in DMT_page_loop() -> display_trial_no()) verwendet. Das ist moeglich,
+  # weil die Verfuegbarkeit pro Stratum eine reine Eigenschaft der (festen)
+  # Item-Bank-Daten ist - nicht vom einzelnen Teilnehmer oder vom Zufall
+  # der Stichprobenziehung -, und daher bereits hier deterministisch
+  # feststeht. sample_trials() (Runtime-code_block) nutzt fuer die
+  # Allokation denselben Helper resolve_stratum_allocation(), damit
+  # Build-Time-Zaehlung und tatsaechliches Runtime-Sampling niemals
+  # auseinanderlaufen koennen (vgl. Punkt 7 in CLAUDE.md, wo genau ein
+  # solches Duplizieren derselben Logik an zwei Stellen bereits zu einem
+  # Bug gefuehrt hat). sample_trials() selbst bekommt weiterhin das
+  # urspruengliche num_trials (siehe DMT_main_trials()-Aufruf unten) -
+  # sie braucht die urspruenglich ANGEFORDERTE Zahl, um dieselbe Allokation
+  # herzuleiten und ihre eigene Kurzfassungs-Warnung korrekt zu loggen.
+  # ------------------------------------------------------------------
+  main_trial_count <- num_trials
+
+  if (stratified_sampling) {
+
+    resolved_allocation <- resolve_stratum_allocation(
+      easy_stimuli_drum_matrix, drum_matrix, num_trials, custom_stratified_sampling_allocation
+    )
+
+    main_trial_count <- resolved_n_sampled(resolved_allocation)
+
+    if (main_trial_count < num_trials) {
+      logging::logwarn(
+        "DMT(): Mit den verfuegbaren Stimuli koennen nur %i von %i angeforderten Trials stratifiziert gesampelt werden. Die Haupttest-Phase wird mit %i Trials gebaut (siehe auch die Stratum-Warnungen von sample_trials() zur Laufzeit).",
+        main_trial_count, num_trials, main_trial_count
+      )
+    }
+
+  } else {
+
+    n_available <- dplyr::n_distinct(full_drum_matrix$TrialNo)
+
+    if (num_trials > n_available) {
+      logging::logwarn(
+        "DMT(): num_trials = %i angefordert, aber nur %i Trials in der (nicht-stratifizierten) Stimulus-Matrix verfuegbar. Die Haupttest-Phase wird mit %i Trials gebaut.",
+        num_trials, n_available, n_available
+      )
+      main_trial_count <- n_available
+    }
+
+  }
 
   # Setup resource paths
   dmt_resources()
 
-  psychTestR::join(
+  # Reduce DMT_dict to just the requested language (see DMT_dict_for_language()
+  # above) - new_timeline() will then build the test for this one language only.
+  dict <- DMT_dict_for_language(DMT_dict, language)
 
-    # Intro
-    DMT_intro(tempo),
+  psychTestR::new_timeline(
 
-    if(num_examples > 0L) DMT_training(num_examples, tempo, with_feedback),
+    psychTestR::join(
 
-    psychTestR::one_button_page("Now you're ready for the real thing. Good luck!"),
+      # Intro
+      DMT_intro(tempo),
 
-    # Sample main trials
-    if(stratified_sampling) sample_trials(num_trials, custom_stratified_sampling_allocation),
+      if(num_examples > 0L) DMT_training(num_examples, tempo, with_feedback),
 
-    # Main Trials
-    DMT_main_trials(num_trials, tempo, with_feedback, trial_timeout, stratified_sampling, full_drum_matrix),
+      psychTestR::one_button_page(psychTestR::i18n("READY_MESSAGE"), button_text = psychTestR::i18n("CONTINUE")),
 
-    psychTestR::final_page("You have finished the Drum Machine Test!")
+      # Sample main trials
+      if(stratified_sampling) sample_trials(num_trials, custom_stratified_sampling_allocation),
+
+      # Main Trials
+      DMT_main_trials(main_trial_count, tempo, with_feedback, trial_timeout, stratified_sampling, full_drum_matrix),
+
+      psychTestR::final_page(psychTestR::i18n("FINAL_MESSAGE"))
+    ),
+
+    dict = dict
   )
 }
-
 
 DMT_main_trials <- function(num_trials, tempo, with_feedback, trial_timeout = 90, stratified_sampling, drum_matrix) {
   purrr::map(1:num_trials, ~ DMT_page_loop(trial_no = .x,
@@ -120,7 +214,7 @@ DMT_demo_loop <- function(trial_no, num_examples, tempo, with_feedback = TRUE) {
   psychTestR::join(
 
     one_button_page_trial_no(trial_no, num_examples, demo = TRUE,
-                             text = 'The next page will show you the correct answer. Click "Play stimulus" to hear it.'),
+                             text = psychTestR::i18n("DEMO_SOLUTION_PROMPT")),
 
     psychTestR::code_block(function(state, ...) {
 
@@ -157,7 +251,7 @@ DMT_demo_loop <- function(trial_no, num_examples, tempo, with_feedback = TRUE) {
       show_solution = TRUE
     ),
 
-    one_button_page_trial_no(trial_no, num_examples, demo = TRUE, text = "Now enter the pattern you just saw."),
+    one_button_page_trial_no(trial_no, num_examples, demo = TRUE, text = psychTestR::i18n("DEMO_ENTER_PROMPT")),
 
     # Get user to enter it
     DMT_page_loop(trial_no, num_examples, tempo, demo = TRUE, stimulus_drum_matrix = demo_drum_matrix, with_feedback = with_feedback)
@@ -176,101 +270,162 @@ one_button_page_trial_no <- function(trial_no, num_trials, text, demo = FALSE) {
 }
 
 
+# ----------------------------------------------------------------------
+# resolve_stratum_allocation(): berechnet fuer die vier Strata
+# (easy_easy / easy_hard / normal_easy / normal_hard) sowohl die
+# angeforderte Ziel-Trial-Zahl (allocation) als auch die tatsaechlich
+# verfuegbare Anzahl distinkter Stimuli (available). Beides haengt nur
+# von den (festen) Item-Bank-Daten, num_trials und
+# custom_stratified_sampling_allocation ab - nicht vom Zufall der
+# eigentlichen Stichprobenziehung. Deshalb kann dieselbe Funktion sowohl
+# zur BUILD-TIME (DMT(), um main_trial_count zu bestimmen) als auch zur
+# RUNTIME (sample_trials(), fuer das eigentliche Sampling) verwendet
+# werden, ohne dass beide Stellen auseinanderlaufen koennen.
+# ----------------------------------------------------------------------
+resolve_stratum_allocation <- function(easy_stimuli_drum_matrix,
+                                       drum_matrix,
+                                       num_trials,
+                                       custom_stratified_sampling_allocation) {
+
+  get_halves <- function(dat) {
+    dat %>%
+      dplyr::group_by(ComplexityHalves) %>%
+      dplyr::summarise(
+        mean_complexity = mean(Complexity),
+        .groups = "drop"
+      ) %>%
+      dplyr::arrange(mean_complexity) %>%
+      dplyr::pull(ComplexityHalves)
+  }
+
+  easy_levels   <- get_halves(easy_stimuli_drum_matrix)
+  normal_levels <- get_halves(drum_matrix)
+
+  strata <- list(
+    easy_easy   = list(dat = easy_stimuli_drum_matrix, half = easy_levels[1]),
+    easy_hard   = list(dat = easy_stimuli_drum_matrix, half = easy_levels[2]),
+    normal_easy = list(dat = drum_matrix,              half = normal_levels[1]),
+    normal_hard = list(dat = drum_matrix,              half = normal_levels[2])
+  )
+
+  # Base allocation
+  n_per_group <- floor(num_trials / 4)
+  remainder   <- num_trials %% 4
+
+  if (check_sampling_allocation(custom_stratified_sampling_allocation)) {
+    allocation <- custom_stratified_sampling_allocation
+  } else {
+
+    allocation <- list(
+      easy_easy   = n_per_group,
+      easy_hard   = n_per_group,
+      normal_easy = n_per_group,
+      normal_hard = n_per_group
+    )
+
+    # Give leftovers to the easy dataset
+    if (remainder >= 1) allocation[["easy_easy"]] <- allocation[["easy_easy"]] + 1
+    if (remainder >= 2) allocation[["easy_hard"]] <- allocation[["easy_hard"]] + 1
+    if (remainder >= 3) allocation[["easy_easy"]] <- allocation[["easy_easy"]] + 1
+
+  }
+
+  available <- stats::setNames(
+    lapply(strata, function(s) {
+      s$dat %>%
+        dplyr::filter(ComplexityHalves == s$half) %>%
+        dplyr::distinct(Stimulus) %>%
+        nrow()
+    }),
+    names(strata)
+  )
+
+  list(
+    strata     = strata,
+    allocation = allocation,
+    available  = available
+  )
+}
+
+# Anzahl Trials, die mit dieser Allokation tatsaechlich zustande kommen
+# (min(angefordert, verfuegbar) je Stratum, aufsummiert).
+resolved_n_sampled <- function(resolved) {
+  sum(mapply(
+    function(n, avail) min(n, avail),
+    resolved$allocation,
+    resolved$available
+  ))
+}
+
 sample_trials <- function(num_trials, custom_stratified_sampling_allocation) {
   psychTestR::code_block(function(state, ...) {
 
     # Label
     easy_stimuli_drum_matrix <- easy_stimuli_drum_matrix %>%
-      dplyr::mutate(Source = "easy")
+      dplyr::mutate(
+        Source = "easy",
+        Audiofile = as.character(Audiofile),
+        Seconds = as.numeric(Seconds)
+      )
 
     drum_matrix <- drum_matrix %>%
-      dplyr::mutate(Source = "normal")
+      dplyr::mutate(
+        Source = "normal",
+        Audiofile = as.character(Audiofile),
+        Seconds = as.numeric(Seconds)
+      )
 
-    sample_stratum <- function(dat, half_label, n) {
+    resolved <- resolve_stratum_allocation(
+      easy_stimuli_drum_matrix, drum_matrix, num_trials, custom_stratified_sampling_allocation
+    )
 
-      stimuli <- dat %>%
-        dplyr::filter(ComplexityHalves == half_label) %>%
-        dplyr::distinct(Stimulus)
+    # ----------------------------------------------------------------
+    # BUGFIX Punkt 3a: sample_stratum() gab bei zu wenigen verfuegbaren
+    # Stimuli in einem Stratum bisher STILLSCHWEIGEND weniger Trials
+    # zurueck als angefordert (durch min(n, nrow(stimuli))), ohne dass
+    # das irgendwo sichtbar wurde. Jetzt: sample_stratum() loggt eine
+    # explizite Warnung (logging::logwarn), wenn nicht genug Stimuli
+    # vorhanden sind. Das Verhalten selbst aendert sich NICHT (Test
+    # laeuft mit weniger Trials in diesem Stratum weiter) - es wird nur
+    # sichtbar gemacht. Allokation und Verfuegbarkeit kommen jetzt aus
+    # resolve_stratum_allocation() (s.o.), damit diese Zahlen garantiert
+    # mit main_trial_count aus DMT() (Build-Time) uebereinstimmen.
+    # ----------------------------------------------------------------
+    sample_stratum <- function(stratum_name) {
 
-      selected <- stimuli %>%
-        dplyr::slice_sample(n = min(n, nrow(stimuli)))
+      s         <- resolved$strata[[stratum_name]]
+      n         <- resolved$allocation[[stratum_name]]
+      available <- resolved$available[[stratum_name]]
 
-      dat %>%
+      if (available < n) {
+        logging::logwarn(
+          "sample_trials(): Stratum '%s' hat nur %i verfuegbare Stimuli, aber %i wurden angefordert. Es werden nur %i Trials aus diesem Stratum gesampelt - der Test laeuft mit insgesamt weniger Trials als num_trials weiter!",
+          stratum_name, available, n, available
+        )
+      }
+
+      selected <- s$dat %>%
+        dplyr::filter(ComplexityHalves == s$half) %>%
+        dplyr::distinct(Stimulus) %>%
+        dplyr::slice_sample(n = min(n, available))
+
+      s$dat %>%
         dplyr::semi_join(selected, by = "Stimulus")
     }
 
-    # labels for each dataset
-    get_halves <- function(dat) {
-      dat %>%
-        dplyr::group_by(ComplexityHalves) %>%
-        dplyr::summarise(
-          mean_complexity = mean(Complexity),
-          .groups = "drop"
-        ) %>%
-        dplyr::arrange(mean_complexity) %>%
-        dplyr::pull(ComplexityHalves)
-    }
-
-    easy_levels <- get_halves(easy_stimuli_drum_matrix)
-    normal_levels <- get_halves(drum_matrix)
-
-    easy_easy   <- easy_levels[1]
-    easy_hard   <- easy_levels[2]
-
-    normal_easy <- normal_levels[1]
-    normal_hard <- normal_levels[2]
-
-    # Base allocation
-    n_per_group <- floor(num_trials / 4)
-    remainder   <- num_trials %% 4
-
-
-
-    if(check_sampling_allocation(custom_stratified_sampling_allocation)) {
-      allocation <- custom_stratified_sampling_allocation
-    } else {
-
-      allocation <- list(
-        easy_easy   = n_per_group,
-        easy_hard   = n_per_group,
-        normal_easy = n_per_group,
-        normal_hard = n_per_group
-      )
-
-      # Give leftovers to the easy dataset
-      if (remainder >= 1) allocation[["easy_easy"]] <- allocation[["easy_easy"]] + 1
-      if (remainder >= 2) allocation[["easy_hard"]] <- allocation[["easy_hard"]] + 1
-      if (remainder >= 3) allocation[["easy_easy"]] <- allocation[["easy_easy"]] + 1
-
-
-    }
-
-
+    # --------------------------------------------------------------
+    # NEU: Stratum-Label mitführen, damit wir die Blockreihenfolge
+    # (easy_easy -> easy_hard -> normal_easy -> normal_hard) am Ende
+    # erzwingen können. Vorher ging dieses Label verloren, weshalb
+    # die TrialNo komplett zufällig über alle vier Gruppen vergeben
+    # wurde.
+    # --------------------------------------------------------------
     sampled_drum_matrix <- dplyr::bind_rows(
 
-      sample_stratum(
-        easy_stimuli_drum_matrix,
-        easy_easy,
-        allocation[["easy_easy"]]
-      ),
-
-      sample_stratum(
-        easy_stimuli_drum_matrix,
-        easy_hard,
-        allocation[["easy_hard"]]
-      ),
-
-      sample_stratum(
-        drum_matrix,
-        normal_easy,
-        allocation[["normal_easy"]]
-      ),
-
-      sample_stratum(
-        drum_matrix,
-        normal_hard,
-        allocation[["normal_hard"]]
-      )
+      sample_stratum("easy_easy")   %>% dplyr::mutate(Stratum = "easy_easy"),
+      sample_stratum("easy_hard")   %>% dplyr::mutate(Stratum = "easy_hard"),
+      sample_stratum("normal_easy") %>% dplyr::mutate(Stratum = "normal_easy"),
+      sample_stratum("normal_hard") %>% dplyr::mutate(Stratum = "normal_hard")
 
     )
 
@@ -284,12 +439,41 @@ sample_trials <- function(num_trials, custom_stratified_sampling_allocation) {
       dplyr::count(ComplexityHalves) %>%
       print()
 
-    # Randomise and trial no
+    # ----------------------------------------------------------------
+    # BUGFIX Punkt 3a (Fortsetzung): Gesamt-Kontrolle NACH dem Sampling.
+    # Selbst wenn kein einzelnes Stratum betroffen war, kann die Summe
+    # ueber alle vier Strata < num_trials sein (z.B. wenn mehrere
+    # Strata leicht knapp waren). Diese Warnung fasst das zusammen.
+    # ----------------------------------------------------------------
+    n_sampled <- dplyr::n_distinct(sampled_drum_matrix$Stimulus)
+
+    if (n_sampled < num_trials) {
+      logging::logwarn(
+        "sample_trials(): Insgesamt wurden nur %i von %i angeforderten Trials gesampelt (zu wenige verfuegbare Stimuli in mindestens einem Stratum - siehe Warnungen oben).",
+        n_sampled, num_trials
+      )
+    }
+
+    # --------------------------------------------------------------
+    # NEU: TrialNo wird jetzt blockweise vergeben, nicht mehr komplett
+    # zufällig. Reihenfolge der Blöcke ist fest:
+    #   easy_easy -> easy_hard -> normal_easy -> normal_hard
+    # Innerhalb jedes Blocks bleibt die Stimulus-Reihenfolge zufällig.
+    # --------------------------------------------------------------
+    stratum_order <- c("easy_easy", "easy_hard", "normal_easy", "normal_hard")
+
     trial_order <- sampled_drum_matrix %>%
-      dplyr::distinct(Stimulus) %>%
-      dplyr::mutate(TrialNo = sample(dplyr::n()))
+      dplyr::distinct(Stimulus, Stratum) %>%
+      dplyr::mutate(Stratum = factor(Stratum, levels = stratum_order)) %>%
+      dplyr::group_by(Stratum) %>%
+      dplyr::mutate(WithinBlockOrder = sample(dplyr::n())) %>%
+      dplyr::ungroup() %>%
+      dplyr::arrange(Stratum, WithinBlockOrder) %>%
+      dplyr::mutate(TrialNo = dplyr::row_number()) %>%
+      dplyr::select(Stimulus, TrialNo)
 
     sampled_drum_matrix <- sampled_drum_matrix %>%
+      dplyr::select(-Stratum) %>%
       dplyr::left_join(trial_order, by = "Stimulus") %>%
       dplyr::arrange(TrialNo)
 
@@ -298,4 +482,48 @@ sample_trials <- function(num_trials, custom_stratified_sampling_allocation) {
   })
 }
 
+#' DMT languages
+#'
+#' Lists the languages available for DMT implementations. Muss mit den
+#' Spaltennamen (in Kleinschreibung) in data_raw/DMT_dict.xlsx übereinstimmen.
+#' @export
+DMT_languages <- function() {
+  c("en", "de", "de_f")
+}
+#' Reduce DMT_dict to a single language
+#'
+#' Internal helper: subsets an i18n_dict down to just the `key` column
+#' plus one language column, so that new_timeline() builds the test for
+#' exactly that one language. The resulting timeline supports no other
+#' language, not even via the `?language=` URL parameter that psychTestR
+#' would otherwise offer.
+#'
+#' @param dict An i18n_dict object (e.g. DMT_dict).
+#' @param language Scalar character, one of DMT_languages().
+#' @keywords internal
+DMT_dict_for_language <- function(dict, language) {
 
+  stopifnot(is.scalar.character(language))
+
+  language <- tolower(language)
+
+  if (!language %in% DMT_languages()) {
+    stop(
+      "Unsupported language '", language, "'. ",
+      "Supported languages: ", paste(DMT_languages(), collapse = ", ")
+    )
+  }
+
+  dict_df <- as.data.frame(dict)
+
+  if (!language %in% names(dict_df)) {
+    stop(
+      "Language '", language, "' is listed in DMT_languages() but has no ",
+      "matching column in DMT_dict. Check data_raw/DMT_dict.xlsx."
+    )
+  }
+
+  sub_df <- dict_df[, c("key", language)]
+
+  psychTestR::i18n_dict$new(sub_df)
+}
