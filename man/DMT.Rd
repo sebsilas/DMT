@@ -7,16 +7,54 @@
 DMT(
   num_trials = 5L,
   tempo = 100,
-  num_examples = 3,
+  num_examples = 2,
   with_feedback = TRUE,
   stratified_sampling = TRUE,
   custom_stratified_sampling_allocation = NULL,
-  trial_timeout = 90
+  trial_timeout = 90,
+  language = "en",
+  with_id = TRUE
 )
 }
 \arguments{
-\item{trial_timeout}{Trial timeout in seconds.}
+\item{num_trials}{Number of main trials.}
+
+\item{tempo}{Playback tempo in BPM.}
+
+\item{num_examples}{Number of practice trials (0 to 5). 0 skips the
+practice phase and its instruction page.}
+
+\item{with_feedback}{If \code{TRUE}, participants get up to four attempts
+per trial with increasingly detailed feedback; the solution is shown
+after the fourth attempt. If \code{FALSE}, each trial has one attempt.}
+
+\item{stratified_sampling}{If \code{TRUE}, main trials are sampled per
+participant from four complexity strata and presented from easiest to
+hardest stratum. If \code{FALSE}, the full item bank is presented in
+fixed order.}
+
+\item{custom_stratified_sampling_allocation}{Optional named list giving the
+number of trials per stratum. Must contain exactly the names
+\code{easy_easy}, \code{easy_hard}, \code{normal_easy} and
+\code{normal_hard} and sum to \code{num_trials}. By default, trials are
+distributed evenly, with any remainder going to the easy strata.}
+
+\item{trial_timeout}{Time limit per attempt in seconds (practice and main
+trials).}
+
+\item{language}{Test language, one of \code{\link{DMT_languages}()}.}
+
+\item{with_id}{If \code{TRUE}, participants are asked for an ID at the
+start. Otherwise psychTestR assigns one automatically.}
+}
+\value{
+A psychTestR timeline.
 }
 \description{
 Embed Drum Machine Test in battery
+}
+\examples{
+\dontrun{
+psychTestR::make_test(DMT(num_trials = 8L))
+}
 }
