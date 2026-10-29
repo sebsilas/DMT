@@ -26,6 +26,10 @@ ol {
   counter-reset: item;
 }
 
+/* The custom counter ignores the start attribute, so set it explicitly */
+ol[start="2"] { counter-reset: item 1; }
+ol[start="3"] { counter-reset: item 2; }
+
 ol li {
   display: flex;
   gap: 0.4em;
@@ -96,6 +100,39 @@ ol li::before {
 
 .cell.playhead {
   outline:3px solid #222;
+}
+
+/* Instruction pages: locked grid, highlighted layer */
+
+#sequencer-wrapper.locked .cell {
+  pointer-events:none;
+  cursor:default;
+}
+
+.sequencer .dimmed {
+  opacity:0.1;
+}
+
+.sequencer .inst.highlighted {
+  color:#0b4f96;
+}
+
+/* Frame around label and row (the label column is 120px wide) */
+.sequencer .grid.highlighted::before {
+  content:"";
+  position:absolute;
+  top:-6px;
+  bottom:-6px;
+  left:-126px;
+  right:-8px;
+  border:3px solid #1c7ed6;
+  border-radius:10px;
+  background:rgba(28,126,214,0.08);
+  pointer-events:none;
+}
+
+.cell.flash {
+  background:#ff6b6b;
 }
 
 /* bar numbers */

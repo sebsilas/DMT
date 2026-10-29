@@ -1,6 +1,4 @@
-
-
-DMT_feedback <- function(trial_no, num_trials, tempo, stimulus_drum_matrix, demo = FALSE, stratified_sampling = TRUE) {
+DMT_feedback <- function(trial_no, num_trials, tempo, stimulus_drum_matrix, demo = FALSE, stratified_sampling = TRUE, trial_timeout = NULL) {
 
   psychTestR::reactive_page(function(state, answer, ...) {
 
@@ -9,6 +7,13 @@ DMT_feedback <- function(trial_no, num_trials, tempo, stimulus_drum_matrix, demo
 
     feedback <- parse_feedback(answer, feedback_layer,
                                trial_no, num_trials, tempo)
+
+    if (isTRUE(answer$timed_out)) {
+      feedback <- shiny::tags$div(
+        shiny::tags$p(shiny::tags$strong(psychTestR::i18n("FEEDBACK_TIME_UP"))),
+        feedback
+      )
+    }
 
     show_solution <- feedback_layer == 4 && !answer$global_correct
 
@@ -21,11 +26,15 @@ DMT_feedback <- function(trial_no, num_trials, tempo, stimulus_drum_matrix, demo
       num_trials,
       feedback = feedback,
       tempo = tempo,
+      attempt = attempt,
       show_solution = show_solution,
-      show_input_grid = attempt == 4L,
+      show_input_grid = show_solution,
       demo = demo,
       show_play_buttons = FALSE,
-      stimulus_drum_matrix = stimulus_drum_matrix
+      stimulus_drum_matrix = stimulus_drum_matrix,
+      trial_timeout = trial_timeout,
+      stratified_sampling = stratified_sampling,
+      collect_answer = FALSE
     )
   })
 }
@@ -50,30 +59,54 @@ parse_feedback <- function(answer, feedback_layer, trial_no, num_trials, tempo) 
   )
 }
 
+# Translated display label for an internal instrument code
+instrument_label <- function(instrument) {
+
+  key <- switch(
+    as.character(instrument),
+    HiHat = "INSTRUMENT_HIHAT",
+    Snare = "INSTRUMENT_SNARE",
+    Kick  = "INSTRUMENT_BASSDRUM",
+    stop("instrument_label(): unknown instrument '", instrument, "'")
+  )
+
+  psychTestR::i18n(key, html = FALSE)
+}
+
 feedback_layer_1 <- function(global_correct) {
-  shiny::tags$div(shiny::tags$p(if(global_correct) "Correct!" else "Not Correct!"))
+  shiny::tags$div(
+    shiny::tags$p(
+      if (global_correct) psychTestR::i18n("FEEDBACK_CORRECT") else psychTestR::i18n("FEEDBACK_NOT_CORRECT")
+    )
+  )
 }
 
 feedback_layer_2 <- function(global_correct, breakdown) {
 
   feedback_parsed <- breakdown %>%
     dplyr::mutate(
-      Feedback = dplyr::case_when(
-        NoMistakes > 0L ~ paste0("Mistake on ", Instrument),
-        TRUE ~ paste0(Instrument, " — Correct!")
+      InstrumentLabel = vapply(Instrument, instrument_label, character(1)),
+      Feedback = mapply(
+        function(no_mistakes, inst_label) {
+          if (no_mistakes > 0L) {
+            psychTestR::i18n("FEEDBACK_MISTAKE_ON", html = FALSE, sub = c(instrument = inst_label))
+          } else {
+            psychTestR::i18n("FEEDBACK_INSTRUMENT_CORRECT", html = FALSE, sub = c(instrument = inst_label))
+          }
+        },
+        NoMistakes, InstrumentLabel
       )
     ) %>%
     dplyr::select(Feedback)
 
-
   shiny::tags$div(
     if (global_correct) {
-      shiny::tags$p("Correct!")
+      shiny::tags$p(psychTestR::i18n("FEEDBACK_CORRECT"))
     } else {
       feedback_container(
         shiny::tags$div(
           style = "text-align: center;",
-          shiny::tags$style(HTML("
+          shiny::tags$style(shiny::HTML("
             table { margin-left: auto; margin-right: auto; }
           ")),
           shiny_table(feedback_parsed, colnames = FALSE, width = "60%")
@@ -86,14 +119,30 @@ feedback_layer_2 <- function(global_correct, breakdown) {
 feedback_layer_3 <- function(global_correct, breakdown) {
 
   feedback_parsed <- breakdown %>%
-    dplyr::mutate(`No. Mistakes` = NoMistakes) %>%
+    dplyr::mutate(
+      Instrument = vapply(Instrument, instrument_label, character(1)),
+      `No. Mistakes` = NoMistakes
+    ) %>%
     dplyr::select(Instrument, `No. Mistakes`)
 
-  shiny::tags$div(if(global_correct)shiny::tags$p("Correct!") else feedback_container( shiny_table(feedback_parsed, colnames = TRUE, width = "50%") ) )
+  names(feedback_parsed) <- c(
+    psychTestR::i18n("TABLE_COL_INSTRUMENT", html = FALSE),
+    psychTestR::i18n("TABLE_COL_MISTAKES", html = FALSE)
+  )
+
+  shiny::tags$div(
+    if (global_correct) {
+      shiny::tags$p(psychTestR::i18n("FEEDBACK_CORRECT"))
+    } else {
+      feedback_container(shiny_table(feedback_parsed, colnames = TRUE, width = "50%"))
+    }
+  )
 }
 
 feedback_layer_4 <- function(global_correct) {
   shiny::tags$div(
-    shiny::tags$p(if (global_correct) "Correct!" else "Here's the correct pattern:")
+    shiny::tags$p(
+      if (global_correct) psychTestR::i18n("FEEDBACK_CORRECT") else psychTestR::i18n("FEEDBACK_SHOW_SOLUTION")
+    )
   )
 }

@@ -7,16 +7,63 @@
 DMT_standalone(
   tempo = 100,
   num_trials = 5L,
-  num_examples = 3,
+  num_examples = 2,
   with_feedback = TRUE,
   stratified_sampling = TRUE,
   custom_stratified_sampling_allocation = NULL,
-  trial_timeout = 90
+  trial_timeout = 90,
+  language = "en",
+  with_id = TRUE,
+  admin_password = "conifer",
+  researcher_email = "anton.schreiber@uni-hamburg.de"
 )
 }
 \arguments{
-\item{trial_timeout}{}
+\item{tempo}{Playback tempo in BPM.}
+
+\item{num_trials}{Number of main trials.}
+
+\item{num_examples}{Number of practice trials (0 to 5). 0 skips the
+practice phase and its instruction page.}
+
+\item{with_feedback}{If \code{TRUE}, participants get up to four attempts
+per trial with increasingly detailed feedback; the solution is shown
+after the fourth attempt. If \code{FALSE}, each trial has one attempt.}
+
+\item{stratified_sampling}{If \code{TRUE}, main trials are sampled per
+participant from four complexity strata and presented from easiest to
+hardest stratum. If \code{FALSE}, the full item bank is presented in
+fixed order.}
+
+\item{custom_stratified_sampling_allocation}{Optional named list giving the
+number of trials per stratum. Must contain exactly the names
+\code{easy_easy}, \code{easy_hard}, \code{normal_easy} and
+\code{normal_hard} and sum to \code{num_trials}. By default, trials are
+distributed evenly, with any remainder going to the easy strata.}
+
+\item{trial_timeout}{Time limit per attempt in seconds (practice and main
+trials).}
+
+\item{language}{Test language, one of \code{\link{DMT_languages}()}.}
+
+\item{with_id}{If \code{TRUE}, participants are asked for an ID at the
+start. Otherwise psychTestR assigns one automatically.}
+
+\item{admin_password}{Password for the psychTestR admin panel (reachable
+by appending \code{?admin=1} to the test URL). Change the default before
+deploying to a public-facing server.}
+
+\item{researcher_email}{Contact email shown at the bottom of every page and
+in the admin panel.}
+}
+\value{
+A Shiny app object.
 }
 \description{
-Standalone Drum Machine Test
+Wraps \code{\link{DMT}()} in a standalone psychTestR app.
+}
+\examples{
+\dontrun{
+DMT_standalone(num_trials = 8L, language = "de")
+}
 }

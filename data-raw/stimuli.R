@@ -144,12 +144,13 @@ complexities %>%
     facet_wrap(~Type)
 
 
-# Compute halves bins
+# Compute halves bins (ntile() rather than cut_number(), which fails when
+# complexity values are tied at the bin boundary)
 easy_stimuli_drum_matrix <- easy_stimuli_drum_matrix %>%
-  mutate(ComplexityHalves = paste0("Easy", cut_number(Complexity, n = 2)))
+  mutate(ComplexityHalves = paste0("Easy", dplyr::ntile(Complexity, n = 2)))
 
 drum_matrix <- drum_matrix %>%
-  mutate(ComplexityHalves = cut_number(Complexity, n = 2))
+  mutate(ComplexityHalves = as.character(dplyr::ntile(Complexity, n = 2)))
 
 
 demo_drum_matrix <- read_csv("data-raw/Stimuli_Information/DMT_instruction_stimuli.csv") %>%

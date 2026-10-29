@@ -1,5 +1,3 @@
-
-
 feedback_container <- function(...) {
   shiny::tags$div(
     style = "display: flex; justify-content: center; width: 100%;",
@@ -49,9 +47,7 @@ is.null.or <- function(x, f) {
   is.null(x) || f(x)
 }
 
-check_sampling_allocation <- function(custom_stratified_sampling_allocation) {
-  length(setdiff(names(custom_stratified_sampling_allocation),
-                 c("easy_easy", "easy_hard", "normal_easy", "normal_hard") )
-  ) == 0
+# Part of base R only since R 4.4.0
+`%||%` <- function(x, y) {
+  if (is.null(x)) y else x
 }
-
